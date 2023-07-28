@@ -10,19 +10,26 @@ start_offset = 0
 start_width = 60
 
 # file_path = "/tmp/CursedKingdoms/data/TOWN-A"
-file_path = "/tmp/CursedKingdoms/data/Bak/MAP0-1"
+file_path = "/tmp/CursedKingdoms/data/MAP0-0"
 
 value_to_color = {}
 
 map_array = [str]
 
+window = tk.Tk()
+
 
 def read_file_as_map(file_path):
-    global map_array
+    global map_array, value_to_color, window
     with open(file_path, 'rb') as file:
         byte_pairs = file.read()
 
     map_array = check_byte_pair([hex(byte_pair)[2:].upper().zfill(2) for byte_pair in byte_pairs])
+
+    set_colors()
+
+    filename = os.path.basename(file_path)
+    window.title(f'Map Data - {filename}')
 
     # return [f'{byte_pairs[i+1]:02X}' for i in range(0, len(byte_pairs), 2)]
 
@@ -47,7 +54,10 @@ def check_byte_pair(map_array_):
 
 def set_colors():
     unique_values = list(set(map_array))
-    return {value: generate_random_color() for value in unique_values}
+
+    for value in unique_values:
+        if value not in value_to_color:
+            value_to_color[value] = generate_random_color()
 
 
 def draw_map(canvas, row_width, cell_size, offset):
@@ -110,8 +120,7 @@ def open_file_and_read():
 
 
 def create_map_window(offset=0, row_width=16, cell_size=20):
-    window = tk.Tk()
-    window.title('Map Data')
+    global window
 
     frame = tk.Frame(window)
     frame.pack(fill=tk.BOTH, expand=True)
@@ -178,5 +187,4 @@ def create_map_window(offset=0, row_width=16, cell_size=20):
 
 if __name__ == "__main__":
     read_file_as_map(file_path)
-    value_to_color = set_colors()
     create_map_window(start_offset, start_width)
