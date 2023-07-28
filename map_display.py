@@ -1,3 +1,4 @@
+import os
 import random
 import tkinter as tk
 from tkinter import font
@@ -100,7 +101,9 @@ def decrease_row_width(row_width_var):
 
 
 def open_file_and_read():
-    file_dialog = filedialog.Open(filetypes=[("All Files", "*.*")])
+    global file_path
+    initial_dir = os.path.dirname(file_path) if file_path else None
+    file_dialog = filedialog.Open(filetypes=[("All Files", "*")], initialdir=initial_dir)
     file_path = file_dialog.show()
     if file_path:
         read_file_as_map(file_path)
