@@ -19,8 +19,9 @@ value_to_color = {}
 map_array = [str]
 
 
-class MapDisplay():
+class MapDisplay(QtWidgets.QApplication):
     def __init__(self):
+        super().__init__()
         self.window = QtWidgets.QMainWindow()
         self.current_width = 0
         self.row_width_var: QtWidgets.QLineEdit | None = None
@@ -244,10 +245,8 @@ if __name__ == '__main__':
     start_offset = 0
     start_width = 16
 
-    app = QtWidgets.QApplication(sys.argv)
-
     map_display = MapDisplay()
 
     map_display.read_file_as_map(file_path)
     map_display.create_map_window(start_offset, start_width)
-    sys.exit(app.exec())
+    sys.exit(map_display.exec())
