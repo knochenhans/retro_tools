@@ -238,7 +238,14 @@ class MapDisplay(QtWidgets.QApplication):
         # Draw map initially
         self.draw_map(row_width, cell_size, offset)
 
+        # Set up the key press event for the main window
+        self.window.keyPressEvent = self.on_key_press
+
         self.window.show()
+
+    def on_key_press(self, event):
+        if event.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier and event.key() == QtCore.Qt.Key.Key_O:
+            self.open_file_and_read()
 
 
 if __name__ == '__main__':
