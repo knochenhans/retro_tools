@@ -43,6 +43,7 @@ class MapDisplay(QtWidgets.QApplication):
         self.limit_edit: QtWidgets.QLineEdit | None = None
         self.view: QtWidgets.QGraphicsView | None = None
         self.filter_leading_byte_pair_cb: QtWidgets.QCheckBox | None = None
+        self.palette_rows_combo: QtWidgets.QComboBox | None = None
 
         self.display_mode = DisplayMode.HEX
 
@@ -155,8 +156,12 @@ class MapDisplay(QtWidgets.QApplication):
         return list(binary_string)
 
     def find_continuous_lines(self, data, min_occurrences=2):
+        if not data:
+            return []
+
         current_start = -1
         output = []
+
         for i, element in enumerate(data):
             if element[0] == '0':
                 if current_start == -1:
@@ -170,7 +175,8 @@ class MapDisplay(QtWidgets.QApplication):
                         output.append('0000')
                 current_start = -1
 
-        output += data[current_start:]
+        if current_start != -1:  # Handle the last continuous line
+            output += data[current_start:]
 
         return output
 
@@ -208,19 +214,21 @@ class MapDisplay(QtWidgets.QApplication):
 
             cell_size_mult = 1.0
 
-            match self.display_mode:
-                case DisplayMode.HEX:
-                    rows = [filtered_map[i:i + row_width] for i in range(offset, len(filtered_map) - limit_diff, row_width)]
-                case DisplayMode.BIT:
-                    cell_size_mult = 0.2
-                    expanded_bits = [bit for hex_value in filtered_map[:limit] for bit in self.hex_to_binary(hex_value)]
-                    rows = [expanded_bits[i:i + row_width] for i in range(offset, len(expanded_bits), row_width)]
-                case DisplayMode.PALETTE:
-                    rows = [''.join(filtered_map[i:i + 2]) for i in range(offset, len(filtered_map) - limit_diff, 2)]
-                    rows = self.find_continuous_lines(rows, 32)
-                    rows = [rows[i:i + row_width] for i in range(0, len(rows), row_width)]
+            if self.palette_rows_combo:
+                match self.display_mode:
+                    case DisplayMode.HEX:
+                        rows = [filtered_map[i:i + row_width] for i in range(offset, len(filtered_map) - limit_diff, row_width)]
+                    case DisplayMode.BIT:
+                        cell_size_mult = 0.2
+                        expanded_bits = [bit for hex_value in filtered_map[:limit] for bit in self.hex_to_binary(hex_value)]
+                        rows = [expanded_bits[i:i + row_width] for i in range(offset, len(expanded_bits), row_width)]
+                    case DisplayMode.PALETTE:
+                        cell_size_mult = 0.5
+                        rows = [''.join(filtered_map[i:i + 2]) for i in range(offset, len(filtered_map) - limit_diff, 2)]
+                        rows = self.find_continuous_lines(rows, int(self.palette_rows_combo.currentText()))
+                        rows = [rows[i:i + row_width] for i in range(0, len(rows), row_width)]
 
-            self.canvas_height = len(rows) * cell_size * cell_size_mult  # Calculate the required self.canvas height
+                self.canvas_height = len(rows) * cell_size * cell_size_mult  # Calculate the required self.canvas height
 
             scene = QtWidgets.QGraphicsScene()
             self.view.setScene(scene)
@@ -228,6 +236,10 @@ class MapDisplay(QtWidgets.QApplication):
             font = QtGui.QFont()
             font.setFamily('Courier New')
             font.setPointSize(cell_size // 1.5)
+
+            counter_font = QtGui.QFont()
+            # counter_font.setFamily('Courier New')
+            counter_font.setPointSize(cell_size // 3)
 
             counter_text_width = 50
 
@@ -280,7 +292,8 @@ class MapDisplay(QtWidgets.QApplication):
 
                 # Add row counter
                 text_item = QtWidgets.QGraphicsSimpleTextItem(str(row_index * row_width))
-                text_item.setPos(0, y1 + cell_size // 2 - text_item.boundingRect().height() // 2)
+                text_item.setFont(counter_font)
+                text_item.setPos(0, y1 + cell_size // 3 - text_item.boundingRect().height() // 3)
                 text_item.setBrush(QtGui.QColor(255, 255, 255))
 
                 scene.addItem(text_item)
@@ -393,6 +406,12 @@ class MapDisplay(QtWidgets.QApplication):
         mode_layout.addWidget(self.palette_radio)
 
         row_layout.addLayout(mode_layout)
+
+        self.palette_rows_combo = QtWidgets.QComboBox()
+        self.palette_rows_combo.addItems(['8', '16', '32'])
+        self.palette_rows_combo.setCurrentIndex(self.palette_rows_combo.findText('32'))
+
+        row_layout.addWidget(self.palette_rows_combo)
         row_layout.addWidget(redraw_button)
         row_layout.addWidget(dump_button)
         row_layout.addWidget(merge_button)
