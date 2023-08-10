@@ -199,6 +199,13 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         return output
 
+    def select_area(self, start, stop):
+        if self.view:
+            self.view.scene().clearSelection()
+            for item in self.view.scene().items():
+                if isinstance(item, ClickableRectItem):
+                    if item.file_pos >= start and item.file_pos <= stop:
+                        item.setSelected(True)
         # continuous_lines = []
         # current_line = []
 
@@ -295,6 +302,7 @@ class MapDisplay(QtWidgets.QMainWindow):
                     rect_item.setBrush(QtCore.Qt.GlobalColor.white)  # Set the default background color
                     rect_item.setPen(QtCore.Qt.PenStyle.NoPen)  # Remove the border
 
+                    rect_item = ClickableRectItem(x1, y1, cell_size * cell_size_mult, cell_size * cell_size_mult, row_index * row_width + col_index, self)
                     rect_item.setBrush(bg_color)
 
                     scene.addItem(rect_item)
@@ -610,6 +618,78 @@ class MapDisplay(QtWidgets.QMainWindow):
                     file.write(dump)
             except Exception as e:
                 print(f'Error while saving file: {e}')
+
+    def dump_selection(self):
+        file_name = '/tmp/dump_selection.txt'
+
+        if file_name:
+            start, stop = self.selection
+            binary_data = bytes.fromhex(''.join(self.str_map_array[start:stop + 1]))
+
+            # Write bytes to the binary file
+            with open(file_name, 'wb') as file:
+                file.write(binary_data)
+
+
+class ClickableRectItem(QtWidgets.QGraphicsRectItem):
+    def __init__(self, x, y, width, height, file_pos, map_display: MapDisplay):
+        super().__init__(x, y, width, height)
+        self.setBrush(QtGui.Qt.GlobalColor.white)
+        self.setPen(QtGui.Qt.PenStyle.NoPen)
+        self.setAcceptHoverEvents(True)  # Enable hover events
+        self.setFlags(QtWidgets.QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable)  # Enable selection
+
+        self.file_pos = file_pos
+        self.map_display = map_display
+
+    def mousePressEvent(self, event):
+        if event.button() == QtGui.Qt.MouseButton.LeftButton:
+            self.scene().clearSelection()
+            self.setSelected(True)
+
+            start, stop = self.map_display.selection
+            if event.modifiers() == QtGui.Qt.KeyboardModifier.NoModifier:
+                start = self.file_pos
+                self.map_display.selection = (start, stop)
+                # self.map_display.selection = (self.file_pos, self.file_pos)
+            elif event.modifiers() == QtGui.Qt.KeyboardModifier.ShiftModifier:
+                new_stop = self.file_pos
+                if new_stop < start:  # Switch values if new_stop is less than start
+                    start, stop = new_stop, start
+                else:
+                    stop = new_stop
+                self.map_display.select_area(start, stop)
+                self.map_display.selection = (start, stop)
+            else:
+                super().mousePressEvent(event)
+
+            print(self.map_display.selection)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == QtGui.Qt.MouseButton.LeftButton:
+            if event.modifiers() == QtGui.Qt.KeyboardModifier.ShiftModifier:
+                pass
+            else:
+                return super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event):
+        multiple = False
+
+        items = self.scene().selectedItems()
+        if len(self.scene().selectedItems()) > 0:
+            if self in items:
+                multiple = True
+
+        menu = QtWidgets.QMenu()
+
+        if multiple:
+            action1 = menu.addAction('Dump selection')
+            action = menu.exec(event.screenPos())
+
+            if action == action1:
+                self.map_display.dump_selection()
+        else:
+            pass
 
 
 if __name__ == '__main__':
