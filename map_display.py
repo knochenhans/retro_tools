@@ -46,6 +46,26 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         self.display_mode = DisplayMode.HEX
 
+        # Create a menu bar
+        menu_bar = self.menuBar()
+        file_menu = menu_bar.addMenu('File')
+
+        open_action = QtGui.QAction('Open', self)
+        open_action.setShortcut(QtGui.QKeySequence.StandardKey.Open)
+        open_action.triggered.connect(self.open_file_and_read)
+
+        quit_action = QtGui.QAction('Quit', self)
+        quit_action.setShortcut(QtGui.QKeySequence.StandardKey.Quit)
+        quit_action.triggered.connect(self.close)
+
+        file_menu.addAction(open_action)
+        file_menu.addAction(quit_action)
+
+        self.read_file_as_map(file_path)
+        self.create_map_window(start_offset, start_width)
+
+        self.selection = (0, len(self.str_map_array))
+
     def read_file_as_map(self, file_path):
         global value_to_color
         with open(file_path, 'rb') as file:
@@ -311,10 +331,6 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         row_layout = QtWidgets.QHBoxLayout()
 
-        # Open button
-        open_button = QtWidgets.QPushButton('Open File')
-        open_button.clicked.connect(lambda: (self.open_file_and_read()))
-
         # Row Width
         row_width_layout = QtWidgets.QHBoxLayout()
         row_width_label = QtWidgets.QLabel('Row Width:')
@@ -374,7 +390,6 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.offset_edit.installEventFilter(self)
 
         # Add all layouts to the main layout
-        row_layout.addWidget(open_button)
         row_layout.addLayout(row_width_layout)
         row_layout.addLayout(offset_layout)
         row_layout.addLayout(limit_layout)
@@ -427,10 +442,7 @@ class MapDisplay(QtWidgets.QMainWindow):
         # Draw map initially
         self.draw_map(row_width, cell_size, offset)
 
-        # Set up the key press event for the main window
-        self.window.keyPressEvent = self.on_key_press
-
-        self.window.show()
+        self.show()
 
     def merge(self):
         from bitplanelib import bitplanes_raw2image
@@ -539,10 +551,6 @@ class MapDisplay(QtWidgets.QMainWindow):
         elif self.palette_radio.isChecked():
             self.display_mode = DisplayMode.PALETTE
             self.redraw_map()
-
-    def on_key_press(self, event):
-        if event.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier and event.key() == QtCore.Qt.Key.Key_O:
-            self.open_file_and_read()
 
     def eventFilter(self, source, event):
         if event.type() == QtCore.QEvent.Type.KeyPress:
