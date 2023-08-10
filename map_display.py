@@ -6,15 +6,9 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from PIL import Image
 import numpy as np
 
-
-# Reads a binary file and displays the content as a map with unique colors per value
-# offset = 5
 start_offset = 0
 start_width = 60
 
-# file_path = "/tmp/CursedKingdoms/data/TOWN-A"
-# file_path = "/tmp/CursedKingdoms/data/MAP0-0"
-# file_path = "/tmp/bitplane_output"
 file_path = os.path.dirname(os.path.realpath(__file__)) + "/data/CursedKingdoms/gfx/ALSEND1DATA"  # Replace with the actual file path
 
 
@@ -206,21 +200,6 @@ class MapDisplay(QtWidgets.QMainWindow):
                 if isinstance(item, ClickableRectItem):
                     if item.file_pos >= start and item.file_pos <= stop:
                         item.setSelected(True)
-        # continuous_lines = []
-        # current_line = []
-
-        # for element in data:
-        #     if element.startswith(start_value):
-        #         current_line.append(element)
-        #     else:
-        #         if len(current_line) >= min_occurrences:
-        #             continuous_lines.append(current_line)
-        #         current_line = []
-
-        # if len(current_line) >= min_occurrences:
-        #     continuous_lines.append(current_line)
-
-        # return continuous_lines
 
     def draw_map(self, row_width, cell_size, offset):
         if self.view:
@@ -295,12 +274,6 @@ class MapDisplay(QtWidgets.QMainWindow):
 
                     x1 = col_index * cell_size * cell_size_mult + counter_text_width
                     y1 = row_index * cell_size * cell_size_mult
-                    # x2 = x1 + cell_size
-                    # y2 = y1 + cell_size
-
-                    rect_item = QtWidgets.QGraphicsRectItem(x1, y1, cell_size * cell_size_mult, cell_size * cell_size_mult)
-                    rect_item.setBrush(QtCore.Qt.GlobalColor.white)  # Set the default background color
-                    rect_item.setPen(QtCore.Qt.PenStyle.NoPen)  # Remove the border
 
                     rect_item = ClickableRectItem(x1, y1, cell_size * cell_size_mult, cell_size * cell_size_mult, row_index * row_width + col_index, self)
                     rect_item.setBrush(bg_color)
