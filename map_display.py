@@ -27,7 +27,7 @@ class DisplayMode(Enum):
 value_to_color = {}
 
 
-class MapDisplay(QtWidgets.QApplication):
+class MapDisplay(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
 
@@ -35,7 +35,6 @@ class MapDisplay(QtWidgets.QApplication):
 
         self.byte_map = b''
 
-        self.window = QtWidgets.QMainWindow()
         self.current_width = 0
         self.row_width_edit: QtWidgets.QLineEdit | None = None
         self.cell_size_edit: QtWidgets.QLineEdit | None = None
@@ -57,7 +56,7 @@ class MapDisplay(QtWidgets.QApplication):
         self.set_colors()
 
         filename = os.path.basename(file_path)
-        self.window.setWindowTitle(f'Map Data - {filename}')
+        self.setWindowTitle(f'Map Data - {filename}')
 
     def generate_random_color(self):
         red = random.randint(0, 255)
@@ -132,7 +131,7 @@ class MapDisplay(QtWidgets.QApplication):
     def open_file_and_read(self):
         global file_path
         initial_dir = os.path.dirname(file_path) if file_path else None
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self.window, "Open File", dir=initial_dir)
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open File", dir=initial_dir)
         if file_path:
             self.read_file_as_map(file_path)
             self.limit_edit.setText(str(len(self.str_map_array)))
@@ -302,10 +301,10 @@ class MapDisplay(QtWidgets.QApplication):
             self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)  # Show the vertical scrollbar
 
     def create_map_window(self, offset=0, row_width=16, cell_size=20, limit=0):
-        self.window.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 800, 600)
 
         central_widget = QtWidgets.QWidget()
-        self.window.setCentralWidget(central_widget)
+        self.setCentralWidget(central_widget)
 
         layout = QtWidgets.QVBoxLayout()
         central_widget.setLayout(layout)
@@ -592,7 +591,7 @@ class MapDisplay(QtWidgets.QApplication):
         return super().eventFilter(source, event)
 
     def dump(self):
-        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self.window, 'Save Settings Dump', '/tmp/test.txt', 'Text Files (*.txt);;All Files (*)')
+        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Settings Dump', '/tmp/dump.txt', 'Text Files (*.txt);;All Files (*)')
 
         if file_name:
             try:
@@ -606,11 +605,12 @@ class MapDisplay(QtWidgets.QApplication):
 
 
 if __name__ == '__main__':
+    app = QtWidgets.QApplication(sys.argv)
+
     start_offset = 0
     start_width = 16
 
     map_display = MapDisplay()
 
-    map_display.read_file_as_map(file_path)
-    map_display.create_map_window(start_offset, start_width)
-    sys.exit(map_display.exec())
+    map_display.show()
+    sys.exit(app.exec())
