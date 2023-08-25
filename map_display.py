@@ -43,6 +43,7 @@ class MapDisplay(QtWidgets.QMainWindow):
         # Create a menu bar
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu('File')
+        edit_menu = menu_bar.addMenu('Edit')
 
         open_action = QtGui.QAction('Open', self)
         open_action.setShortcut(QtGui.QKeySequence.StandardKey.Open)
@@ -52,20 +53,28 @@ class MapDisplay(QtWidgets.QMainWindow):
         quit_action.setShortcut(QtGui.QKeySequence.StandardKey.Quit)
         quit_action.triggered.connect(self.close)
 
+        dump_selection_action = QtGui.QAction('Dump Selection', self)
+        dump_selection_action.setShortcut(QtGui.QKeySequence.StandardKey.Save)
+        dump_selection_action.triggered.connect(self.dump_selection)
+
         file_menu.addAction(open_action)
         file_menu.addAction(quit_action)
 
-        self.read_file_as_map(file_path)
-        self.create_map_window(start_offset, start_width)
+        edit_menu.addAction(dump_selection_action)
+
+        self.read_map(file_path)
+        self.create_map_view(start_offset, start_width)
 
         self.selection = (0, len(self.str_map_array))
 
     def read_file_as_map(self, file_path):
-        global value_to_color
         with open(file_path, 'rb') as file:
             self.byte_map = file.read()
 
-        self.str_map_array = [hex(byte_pair)[2:].upper().zfill(2) for byte_pair in self.byte_map]
+        return [hex(byte_pair)[2:].upper().zfill(2) for byte_pair in self.byte_map]
+
+    def read_map(self, file_path):
+        self.str_map_array = self.read_file_as_map(file_path)
 
         self.set_colors()
 
@@ -90,20 +99,6 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         return filtered_array
 
-    # def int_to_qcolor(color_int):
-    #     red = color_int // (256 * 256)  # Quotient for red component
-    #     green = (color_int // 256) % 256  # Quotient for green component, remainder for blue component
-    #     blue = color_int % 256  # Remainder for blue component
-
-    #     return QtGui.QColor.fromHsv(color_int / 65536 * 359, color_int / 65536 * 255, 255)
-
-    # def get_color(hex_string):
-    #     # max_hex_values = 65536
-    #     # max_rgb_values = 256**3  # The maximum value for each RGB component
-
-    #     # Calculate the RGB value at the current distance
-    #     return int_to_qcolor((int(hex_string, 16) + 1) * 255)
-
     def set_colors(self):
         unique_values = list(set(self.str_map_array))
 
@@ -120,8 +115,8 @@ class MapDisplay(QtWidgets.QMainWindow):
                     offset = int(self.offset_edit.text())
                     self.view.scene().clear()  # Clear the self.canvas
                     self.draw_map(row_width, cell_size, offset)
-            except ValueError:
-                pass
+            except ValueError as e:
+                print(e)
 
     def increase_row_width(self):
         if self.row_width_edit:
@@ -147,7 +142,7 @@ class MapDisplay(QtWidgets.QMainWindow):
         initial_dir = os.path.dirname(file_path) if file_path else None
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open File", dir=initial_dir)
         if file_path:
-            self.read_file_as_map(file_path)
+            self.read_map(file_path)
             self.limit_edit.setText(str(len(self.str_map_array)))
 
             filter = True
@@ -168,30 +163,32 @@ class MapDisplay(QtWidgets.QMainWindow):
         binary_string = format(decimal_value, '08b')  # '08b' formats the integer as an 8-bit binary string
         return list(binary_string)
 
-    def find_continuous_lines(self, data, min_occurrences=2):
-        if not data:
-            return []
+    def erase_noncontinuous_values(self, data, min_occurrence):
+        data_list = []
 
-        current_start = -1
-        output = []
+        start_idx = None
+        count = 0
 
-        for i, element in enumerate(data):
-            if element[0] == '0':
-                if current_start == -1:
-                    current_start = i
+        for idx, value in enumerate(data):
+            if value[0] == '0':
+                if start_idx is None:
+                    start_idx = idx
+                count += 1
             else:
-                if (i - current_start) >= min_occurrences:
-                    output += data[current_start:i]
-                    output.append('0000')
-                else:
-                    for j in range(i - current_start):
-                        output.append('0000')
-                current_start = -1
+                if start_idx is not None and count >= min_occurrence:
+                    data_list.append((start_idx, idx - 1))
+                start_idx = None
+                count = 0
 
-        if current_start != -1:  # Handle the last continuous line
-            output += data[current_start:]
+        if start_idx is not None and count >= min_occurrence:
+            data_list.append((start_idx, len(data) - 1))
 
-        return output
+        result = ['0000'] * len(data)
+
+        for start, end in data_list:
+            result[start:end+1] = data[start:end+1]
+
+        return result
 
     def select_area(self, start, stop):
         if self.view:
@@ -228,9 +225,9 @@ class MapDisplay(QtWidgets.QMainWindow):
                         expanded_bits = [bit for hex_value in filtered_map[:limit] for bit in self.hex_to_binary(hex_value)]
                         rows = [expanded_bits[i:i + row_width] for i in range(offset, len(expanded_bits), row_width)]
                     case DisplayMode.PALETTE:
-                        cell_size_mult = 0.5
+                        # cell_size_mult = 0.5
                         rows = [''.join(filtered_map[i:i + 2]) for i in range(offset, len(filtered_map) - limit_diff, 2)]
-                        rows = self.find_continuous_lines(rows, int(self.palette_rows_combo.currentText()))
+                        rows = self.erase_noncontinuous_values(rows, int(self.palette_rows_combo.currentText()))
                         rows = [rows[i:i + row_width] for i in range(0, len(rows), row_width)]
 
                 self.canvas_height = len(rows) * cell_size * cell_size_mult  # Calculate the required self.canvas height
@@ -280,6 +277,8 @@ class MapDisplay(QtWidgets.QMainWindow):
 
                     scene.addItem(rect_item)
 
+                    # Text
+
                     match self.display_mode:
                         case DisplayMode.HEX:
                             text_item = QtWidgets.QGraphicsSimpleTextItem(text)
@@ -288,7 +287,14 @@ class MapDisplay(QtWidgets.QMainWindow):
                             text_item.setPos(x1 + cell_size // 2 - text_item.boundingRect().width() // 2, y1 + cell_size // 2 - text_item.boundingRect().height() // 2)
                             scene.addItem(text_item)
                         case DisplayMode.PALETTE:
-                            pass
+                            text_item = QtWidgets.QGraphicsSimpleTextItem(text)
+
+                            font.setPointSize(cell_size // 3)
+
+                            text_item.setFont(font)
+                            text_item.setPos(x1 + cell_size // 2 - text_item.boundingRect().width() // 2, y1 + cell_size // 2 - text_item.boundingRect().height() // 2)
+                            text_item.setBrush(QtGui.QColor(255, 255, 255))
+                            scene.addItem(text_item)
 
                 # Add row counter
                 text_item = QtWidgets.QGraphicsSimpleTextItem(str(row_index * row_width))
@@ -301,7 +307,7 @@ class MapDisplay(QtWidgets.QMainWindow):
             self.view.setSceneRect(0, 0, cell_size * row_width, self.canvas_height)  # Set the scene rectangle
             self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)  # Show the vertical scrollbar
 
-    def create_map_window(self, offset=0, row_width=16, cell_size=20, limit=0):
+    def create_map_view(self, offset=0, row_width=16, cell_size=20):
         self.setGeometry(100, 100, 800, 600)
 
         central_widget = QtWidgets.QWidget()
@@ -364,7 +370,7 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         # Merge
         merge_button = QtWidgets.QPushButton('Merge')
-        merge_button.clicked.connect(lambda: self.merge())
+        merge_button.clicked.connect(lambda: self.merge_bitplanes())
 
         self.limit_edit.installEventFilter(self)
         self.row_width_edit.installEventFilter(self)
@@ -405,11 +411,17 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.palette_rows_combo = QtWidgets.QComboBox()
         self.palette_rows_combo.addItems(['8', '16', '32'])
         self.palette_rows_combo.setCurrentIndex(self.palette_rows_combo.findText('32'))
+        self.palette_rows_combo.currentIndexChanged.connect(self.redraw_map)
 
         row_layout.addWidget(self.palette_rows_combo)
         row_layout.addWidget(redraw_button)
         row_layout.addWidget(dump_button)
         row_layout.addWidget(merge_button)
+
+        self.selection_label1 = QtWidgets.QLabel('Sel.:')
+        self.selection_label2 = QtWidgets.QLabel('0 - 0')
+        row_layout.addWidget(self.selection_label1)
+        row_layout.addWidget(self.selection_label2)
 
         layout.addLayout(row_layout)
 
@@ -425,51 +437,18 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         self.show()
 
-    def merge(self):
+    def merge_bitplanes(self):
         from bitplanelib import bitplanes_raw2image
 
         if len(self.byte_map) % 5 != 0:
-            raise ValueError("The length of the bytearray must be divisible by 5 to split it into 5 equal pieces.")
+            raise ValueError('The length of the bytearray must be divisible by 5 to split it into 5 equal pieces.')
 
         piece_size = len(self.byte_map) // 5
         bitplanes = [self.byte_map[i * piece_size: (i + 1) * piece_size] for i in range(5)]
 
-        palette = [(0, 0, 0),        # Black
-                   (48, 48, 48),     # Dark Gray
-                   (64, 64, 64),     # Gray
-                   (96, 0, 0),       # Dark Red
-                   (160, 0, 0),      # Red
-                   (209, 1, 0),      # Scarlet Red
-                   (0, 0, 0),        # Black (repeated)
-                   (48, 48, 48),     # Dark Gray (repeated)
-                   (64, 64, 64),     # Gray (repeated)
-                   (96, 0, 0),       # Dark Red (repeated)
-                   (160, 0, 0),      # Red (repeated)
-                   (209, 1, 0),      # Scarlet Red (repeated)
-                   (0, 0, 0),        # Black (repeated)
-                   (48, 48, 48),     # Dark Gray (repeated)
-                   (64, 64, 64),     # Gray (repeated)
-                   (96, 0, 0),       # Dark Red (repeated)
-                   (160, 0, 0),      # Red (repeated)
-                   (209, 1, 0),      # Scarlet Red (repeated)
-                   (0, 0, 0),        # Black (repeated)
-                   (48, 48, 48),     # Dark Gray (repeated)
-                   (64, 64, 64),     # Gray (repeated)
-                   (96, 0, 0),       # Dark Red (repeated)
-                   (160, 0, 0),      # Red (repeated)
-                   (209, 1, 0),      # Scarlet Red (repeated)
-                   (0, 0, 0),        # Black (repeated)
-                   (48, 48, 48),     # Dark Gray (repeated)
-                   (64, 64, 64),     # Gray (repeated)
-                   (96, 0, 0),       # Dark Red (repeated)
-                   (160, 0, 0),      # Red (repeated)
-                   (209, 1, 0),       # Scarlet Red (repeated)
-                   (48, 48, 48),     # Dark Gray (repeated)
-                   (64, 64, 64),     # Gray (repeated)
-                   (96, 0, 0),       # Dark Red (repeated)
-                   (160, 0, 0),      # Red (repeated)
-                   (209, 1, 0)       # Scarlet Red (repeated)
-                   ]
+        palette_data = self.read_file_as_map('/tmp/palette1')
+
+        rows = [''.join(palette_data[i:i + 2]) for i in range(0, len(palette_data), 2)]
 
         bitplanes_raw2image(self.byte_map, 5, 320, 200, '/tmp/test.png', palette)
         # chunky_row = []
@@ -523,15 +502,13 @@ class MapDisplay(QtWidgets.QMainWindow):
         # Slot method to handle display mode change
         if self.bit_radio.isChecked():
             self.display_mode = DisplayMode.BIT
-            self.redraw_map()
 
         elif self.hex_radio.isChecked():
             self.display_mode = DisplayMode.HEX
-            self.redraw_map()
 
         elif self.palette_radio.isChecked():
             self.display_mode = DisplayMode.PALETTE
-            self.redraw_map()
+        self.redraw_map()
 
     def eventFilter(self, source, event):
         if event.type() == QtCore.QEvent.Type.KeyPress:
@@ -580,7 +557,7 @@ class MapDisplay(QtWidgets.QMainWindow):
         return super().eventFilter(source, event)
 
     def dump(self):
-        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Settings Dump', '/tmp/dump.txt', 'Text Files (*.txt);;All Files (*)')
+        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Settings', '/tmp/dump.txt', 'Text Files (*.txt);;All Files (*)')
 
         if file_name:
             try:
@@ -593,11 +570,22 @@ class MapDisplay(QtWidgets.QMainWindow):
                 print(f'Error while saving file: {e}')
 
     def dump_selection(self):
-        file_name = '/tmp/dump_selection.txt'
+        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Selection', '/tmp/dump_selection', 'All Files (*)')
 
         if file_name:
             start, stop = self.selection
-            binary_data = bytes.fromhex(''.join(self.str_map_array[start:stop + 1]))
+
+            mult = 1
+
+            match self.display_mode:
+                case DisplayMode.HEX:
+                    pass
+                case DisplayMode.BIT:
+                    pass
+                case DisplayMode.PALETTE:
+                    mult = 2
+
+            binary_data = bytes.fromhex(''.join(self.str_map_array[start * mult:(stop + 1) * mult]))
 
             # Write bytes to the binary file
             with open(file_name, 'wb') as file:
@@ -623,6 +611,7 @@ class ClickableRectItem(QtWidgets.QGraphicsRectItem):
             start, stop = self.map_display.selection
             if event.modifiers() == QtGui.Qt.KeyboardModifier.NoModifier:
                 start = self.file_pos
+                stop = start
                 self.map_display.selection = (start, stop)
                 # self.map_display.selection = (self.file_pos, self.file_pos)
             elif event.modifiers() == QtGui.Qt.KeyboardModifier.ShiftModifier:
@@ -633,14 +622,20 @@ class ClickableRectItem(QtWidgets.QGraphicsRectItem):
                     stop = new_stop
                 self.map_display.select_area(start, stop)
                 self.map_display.selection = (start, stop)
+            elif event.modifiers() == QtGui.Qt.KeyboardModifier.AltModifier:
+                start = self.file_pos
+                stop = start + int(self.map_display.palette_rows_combo.currentText()) - 1
+                self.map_display.select_area(start, stop)
+                self.map_display.selection = (start, stop)
             else:
                 super().mousePressEvent(event)
 
-            print(self.map_display.selection)
+            start, stop = self.map_display.selection
+            self.map_display.selection_label2.setText(f'{start} - {stop} ({stop-start+1})')
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == QtGui.Qt.MouseButton.LeftButton:
-            if event.modifiers() == QtGui.Qt.KeyboardModifier.ShiftModifier:
+            if event.modifiers() == QtGui.Qt.KeyboardModifier.ShiftModifier or event.modifiers() == QtGui.Qt.KeyboardModifier.AltModifier:
                 pass
             else:
                 return super().mouseReleaseEvent(event)
