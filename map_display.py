@@ -1,9 +1,15 @@
+import copy
 from enum import Enum, auto
 import os
 import random
+import shutil
 import sys
+import tempfile
+from typing import Optional
 from PySide6 import QtWidgets, QtCore, QtGui
 from PIL import Image
+import PySide6.QtCore
+import PySide6.QtWidgets
 import numpy as np
 
 start_offset = 0
@@ -25,9 +31,10 @@ class MapDisplay(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.str_map_array = [str]
+        self.binary_loader = BinaryLoader(self)
 
-        self.byte_map = b''
+        self.str_map_array = [str]
+        self.byte_map_buffer = b''
 
         self.current_width = 0
         self.row_width_edit: QtWidgets.QLineEdit | None = None
@@ -67,11 +74,14 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         self.selection = (0, len(self.str_map_array))
 
-    def read_file_as_map(self, file_path):
+    def read_file_as_map(self, file_path, preserve_byte_map=True):
         with open(file_path, 'rb') as file:
-            self.byte_map = file.read()
+            byte_map_buffer = file.read()
 
-        return [hex(byte_pair)[2:].upper().zfill(2) for byte_pair in self.byte_map]
+        if preserve_byte_map:
+            self.byte_map_buffer = byte_map_buffer
+
+        return [hex(byte_pair)[2:].upper().zfill(2) for byte_pair in byte_map_buffer]
 
     def read_map(self, file_path):
         self.str_map_array = self.read_file_as_map(file_path)
@@ -261,11 +271,7 @@ class MapDisplay(QtWidgets.QMainWindow):
                                 bg_color = QtGui.QColor(255, 255, 255)
                         case DisplayMode.PALETTE:
                             if text[0] == '0':
-                                text_expanded = ''.join([c * 2 for c in text])
-                                red = int(text_expanded[2:4], 16)
-                                green = int(text_expanded[4:6], 16)
-                                blue = int(text_expanded[6:], 16)
-                                bg_color = QtGui.QColor.fromRgb(red, green, blue)
+                                bg_color = self.binary_loader.amiga_color_to_rgb(text)
                             else:
                                 bg_color = QtGui.QColor(0, 0, 0)
 
@@ -438,58 +444,16 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.show()
 
     def merge_bitplanes(self):
-        from bitplanelib import bitplanes_raw2image
+        global file_path
 
-        if len(self.byte_map) % 5 != 0:
-            raise ValueError('The length of the bytearray must be divisible by 5 to split it into 5 equal pieces.')
+        byte_map_buffer = copy.copy(self.byte_map_buffer)
 
-        piece_size = len(self.byte_map) // 5
-        bitplanes = [self.byte_map[i * piece_size: (i + 1) * piece_size] for i in range(5)]
-
-        palette_data = self.read_file_as_map('/tmp/palette1')
-
-        rows = [''.join(palette_data[i:i + 2]) for i in range(0, len(palette_data), 2)]
-
-        bitplanes_raw2image(self.byte_map, 5, 320, 200, '/tmp/test.png', palette)
-        # chunky_row = []
-
-        # startx = 0
-        # starty = 32
-        # width = 5
-        # height = 5
-
-        # for x in range((starty * width), width * height + (starty * width)):
-        #     pixel_value = 0
-        #     for bitplane_index in range(len(bitplanes)):
-        #         bit_value = (bitplanes[bitplane_index][x // 8] >> (7 - (x & 7) % 8)) & 1
-        #         pixel_value |= bit_value
-        #         if bitplane_index < 4:
-        #             pixel_value <<= 1
-        #     # if x % 2 == 1:
-        #     #     chunky_row.append((buffer<<4) | (pixel_value>>4))
-        #     # else:
-        #     #     buffer = pixel_value
-
-        #     chunky_row.append(pixel_value)
-
-        # pixels = []
-
-        # for y in range(width):
-        #     row = []
-        #     for x in range(height):
-        #         row.append(palette[chunky_row[x + y]])
-        #     pixels.append(row)
-
-        # # Convert the pixels into an array using numpy
-        # array = np.array(pixels, dtype=np.uint8)
-
-        # # image = Image.frombytes('1', (320, 200), bitplanes[0])
-        # # image = Image.frombytes('1', (320, 200), chunky_row)
-        # # image = image.convert('L')
-
-        # image = Image.fromarray(array)
-
-        # image.show()
+        if len(byte_map_buffer) % 5 != 0:
+            error_message = 'The length of the bytearray must be divisible by 5 to split it into 5 equal pieces.'
+            QtWidgets.QMessageBox.critical(self, 'Error', error_message)
+        else:
+            self.image_dialog = ImageDisplay(self.byte_map_buffer)
+            self.image_dialog.exec()
 
     def on_filter_leading_byte_pair_cb(self, state):
         self.redraw_map()
@@ -590,6 +554,103 @@ class MapDisplay(QtWidgets.QMainWindow):
             # Write bytes to the binary file
             with open(file_name, 'wb') as file:
                 file.write(binary_data)
+
+
+class BinaryLoader():
+    def __init__(self, parent):
+        self.byte_map_buffer = []
+        self.parent = parent
+
+    def read_file_as_map(self, file_path, preserve_byte_map=True):
+        with open(file_path, 'rb') as file:
+            byte_map_buffer = file.read()
+
+        if preserve_byte_map:
+            self.byte_map_buffer = byte_map_buffer
+
+        return [hex(byte_pair)[2:].upper().zfill(2) for byte_pair in byte_map_buffer]
+
+    def open_palette(self):
+        initial_dir = os.path.dirname(file_path) if file_path else None
+        palette_file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self.parent, 'Open Palette Dump', dir=initial_dir)
+
+        if palette_file_path:
+            palette_data = self.read_file_as_map(palette_file_path, preserve_byte_map=False)
+            return [''.join(palette_data[i:i + 2]) for i in range(0, len(palette_data), 2)]
+        return []
+
+    def palette_to_rgb(self, palette):
+        rgb_colors = []
+
+        for color in palette:
+            q_color = self.amiga_color_to_rgb(color)
+            rgb_colors.append((q_color.red(), q_color.green(), q_color.blue()))
+        return rgb_colors
+
+    def amiga_color_to_rgb(self, text):
+        text_expanded = ''.join([c * 2 for c in text])
+        red = int(text_expanded[2:4], 16)
+        green = int(text_expanded[4:6], 16)
+        blue = int(text_expanded[6:], 16)
+        bg_color = QtGui.QColor.fromRgb(red, green, blue)
+        return bg_color
+
+
+class ImageDisplay(QtWidgets.QDialog):
+    def __init__(self, byte_map_buffer, parent=None) -> None:
+        super().__init__(parent)
+
+        self.binary_loader = BinaryLoader(self)
+        self.byte_map_buffer = byte_map_buffer
+
+        layout = QtWidgets.QVBoxLayout()
+        button_layout = QtWidgets.QHBoxLayout()
+
+        self.image_path = ""
+
+        self.pixmap = QtGui.QPixmap(320, 200)
+        self.pixmap.fill(QtGui.QColor(0, 0, 0))
+        self.label = QtWidgets.QLabel(self)
+        self.label.setPixmap(self.pixmap)
+        layout.addWidget(self.label)
+
+        save_button = QtWidgets.QPushButton('Save', self)
+        save_button.clicked.connect(self.save_merged_image)
+        button_layout.addWidget(save_button)
+
+        palette_button = QtWidgets.QPushButton('Load New Palette', self)
+        palette_button.clicked.connect(self.load_palette)
+        button_layout.addWidget(palette_button)
+
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+        self.tmp_image = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+        self.load_palette()
+
+    def load_palette(self):
+        from bitplanelib import bitplanes_raw2image
+
+        palette = self.binary_loader.open_palette()
+        rgb_colors = self.binary_loader.palette_to_rgb(palette)
+
+        bitplanes_raw2image(self.byte_map_buffer, 5, 320, 200, self.tmp_image.name, rgb_colors)
+        self.pixmap.load(self.tmp_image.name)
+        self.label.setPixmap(self.pixmap)
+
+    def save_merged_image(self):
+        global file_path
+        initial_dir = os.path.dirname(file_path) if file_path else None
+        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Merged Data as PNG', dir=initial_dir, filter='PNG Files (*.png)')
+
+        if save_path:
+            if not save_path.lower().endswith('.png'):
+                save_path += '.png'
+
+                shutil.move(self.image_path, save_path)
+
+                self.tmp_image.close()
+                self.close()
 
 
 class ClickableRectItem(QtWidgets.QGraphicsRectItem):
