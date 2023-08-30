@@ -27,6 +27,54 @@ class DisplayMode(Enum):
 value_to_color = {}
 
 
+class PaletteManager(QtWidgets.QDialog):
+    def __init__(self, palettes, parent=None) -> None:
+        super().__init__(parent)
+
+        self.binary_loader = BinaryLoader(self)
+        self.setAcceptDrops(True)  # Enable drag and drop
+
+        layout = QtWidgets.QVBoxLayout()  # Use QHBoxLayout for a horizontal layout
+        list_layout = QtWidgets.QVBoxLayout()  # Create layout for buttons
+
+        palettes_label = QtWidgets.QLabel('Palettes', self)
+        palettes_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
+
+        self.list_widget = QtWidgets.QListWidget(self)
+        self.list_widget.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
+        self.list_widget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        list_layout.addWidget(palettes_label)
+        list_layout.addWidget(self.list_widget)
+        layout.addLayout(list_layout)
+
+        # Add "OK" and "Cancel" buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        ok_button = QtWidgets.QPushButton('OK', self)
+        ok_button.clicked.connect(self.on_ok_clicked)
+        button_layout.addWidget(ok_button)
+
+        cancel_button = QtWidgets.QPushButton('Cancel', self)
+        cancel_button.clicked.connect(self.reject)  # Reject (close) the dialog
+        button_layout.addWidget(cancel_button)
+
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            self.list_widget.addItem(file_path)
+
+    def on_ok_clicked(self):
+        self.accept()
+
+
 class MapDisplay(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -35,6 +83,7 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         self.str_map_array = [str]
         self.byte_map_buffer = b''
+        self.filename = ''
 
         self.current_width = 0
         self.row_width_edit: QtWidgets.QLineEdit | None = None
@@ -46,6 +95,8 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.palette_rows_combo: QtWidgets.QComboBox | None = None
 
         self.display_mode = DisplayMode.HEX
+
+        self.palette_filenames = []
 
         # Create a menu bar
         menu_bar = self.menuBar()
@@ -60,12 +111,16 @@ class MapDisplay(QtWidgets.QMainWindow):
         quit_action.setShortcut(QtGui.QKeySequence.StandardKey.Quit)
         quit_action.triggered.connect(self.close)
 
+        palettes_action = QtGui.QAction('Palettes', self)
+        palettes_action.triggered.connect(self.open_palette_manager)
+
         dump_selection_action = QtGui.QAction('Dump Selection', self)
         dump_selection_action.setShortcut(QtGui.QKeySequence.StandardKey.Save)
         dump_selection_action.triggered.connect(self.dump_selection)
 
         file_menu.addAction(open_action)
         file_menu.addAction(quit_action)
+        file_menu.addAction(palettes_action)
 
         edit_menu.addAction(dump_selection_action)
 
@@ -73,6 +128,13 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.create_map_view(start_offset, start_width)
 
         self.selection = (0, len(self.str_map_array))
+
+    def open_palette_manager(self):
+        palette_manager = PaletteManager(self.palette_filenames)
+        result = palette_manager.exec()
+
+        if result == QtWidgets.QDialog.DialogCode.Accepted:
+            self.palette_filenames = [palette_manager.list_widget.item(index).text() for index in range(palette_manager.list_widget.count())]
 
     def read_file_as_map(self, file_path, preserve_byte_map=True):
         with open(file_path, 'rb') as file:
@@ -88,8 +150,8 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         self.set_colors()
 
-        filename = os.path.basename(file_path)
-        self.setWindowTitle(f'Map Data - {filename}')
+        self.filename = os.path.basename(file_path)
+        self.setWindowTitle(f'Map Data - {self.filename}')
 
     def generate_random_color(self):
         red = random.randint(0, 255)
@@ -360,11 +422,9 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.filter_leading_byte_pair_cb = QtWidgets.QCheckBox('Filter leading 00')
         self.filter_leading_byte_pair_cb.setChecked(False)
         self.filter_leading_byte_pair_cb.stateChanged.connect(self.on_filter_leading_byte_pair_cb)
-        self.filter_leading_byte_pair_label = QtWidgets.QLabel('Filter leading 00')
 
         filter_leading_byte_pair_layout = QtWidgets.QHBoxLayout()
         filter_leading_byte_pair_layout.addWidget(self.filter_leading_byte_pair_cb)
-        filter_leading_byte_pair_layout.addWidget(self.filter_leading_byte_pair_label)
 
         # Redraw button
         redraw_button = QtWidgets.QPushButton('Redraw Map')
@@ -390,35 +450,35 @@ class MapDisplay(QtWidgets.QMainWindow):
         row_layout.addLayout(cell_size_layout)
         row_layout.addLayout(filter_leading_byte_pair_layout)
 
-        # Display Mode Radio Buttons
-        mode_layout = QtWidgets.QHBoxLayout()
+        # Display mode
+
         self.display_mode_label = QtWidgets.QLabel('Display Mode:')
-        self.bit_radio = QtWidgets.QRadioButton('Bit')
-        self.hex_radio = QtWidgets.QRadioButton('Hex')
-        self.palette_radio = QtWidgets.QRadioButton('Palette')
-
+        
+        self.display_mode_combo = QtWidgets.QComboBox(self)
+        self.display_mode_combo.addItem('Bit')
+        self.display_mode_combo.addItem('Hex')
+        self.display_mode_combo.addItem('Palette')
+        
         if self.display_mode == DisplayMode.HEX:
-            self.hex_radio.setChecked(True)
+            self.display_mode_combo.setCurrentText('Hex')
         else:
-            self.bit_radio.setChecked(True)
+            self.display_mode_combo.setCurrentText('Bit')
 
-        # Connect the radio buttons' toggled signals to a slot method
-        self.bit_radio.toggled.connect(self.on_display_mode_change)
-        self.hex_radio.toggled.connect(self.on_display_mode_change)
-        self.palette_radio.toggled.connect(self.on_display_mode_change)
+        self.display_mode_combo.activated.connect(self.on_display_mode_change)
 
+        mode_layout = QtWidgets.QHBoxLayout()
         mode_layout.addWidget(self.display_mode_label)
-        mode_layout.addWidget(self.bit_radio)
-        mode_layout.addWidget(self.hex_radio)
-        mode_layout.addWidget(self.palette_radio)
+        mode_layout.addWidget(self.display_mode_combo)
 
         row_layout.addLayout(mode_layout)
 
+        self.palette_rows_label = QtWidgets.QLabel('Palette length:')
         self.palette_rows_combo = QtWidgets.QComboBox()
         self.palette_rows_combo.addItems(['8', '16', '32'])
         self.palette_rows_combo.setCurrentIndex(self.palette_rows_combo.findText('32'))
         self.palette_rows_combo.currentIndexChanged.connect(self.redraw_map)
 
+        row_layout.addWidget(self.palette_rows_label)
         row_layout.addWidget(self.palette_rows_combo)
         row_layout.addWidget(redraw_button)
         row_layout.addWidget(dump_button)
@@ -452,7 +512,7 @@ class MapDisplay(QtWidgets.QMainWindow):
             error_message = 'The length of the bytearray must be divisible by 5 to split it into 5 equal pieces.'
             QtWidgets.QMessageBox.critical(self, 'Error', error_message)
         else:
-            self.image_dialog = ImageDisplay(self.byte_map_buffer)
+            self.image_dialog = ImageDisplay(self.byte_map_buffer, self.filename, self.palette_filenames)
             self.image_dialog.exec()
 
     def on_filter_leading_byte_pair_cb(self, state):
@@ -462,15 +522,13 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.limit_edit.setText(str(len(self.str_map_array)))
         self.redraw_map()
 
-    def on_display_mode_change(self):
-        # Slot method to handle display mode change
-        if self.bit_radio.isChecked():
+    def on_display_mode_change(self, index):
+        selected_mode = self.display_mode_combo.itemText(index)
+        if selected_mode == 'Bit':
             self.display_mode = DisplayMode.BIT
-
-        elif self.hex_radio.isChecked():
+        elif selected_mode == 'Hex':
             self.display_mode = DisplayMode.HEX
-
-        elif self.palette_radio.isChecked():
+        elif selected_mode == 'Palette':
             self.display_mode = DisplayMode.PALETTE
         self.redraw_map()
 
@@ -521,11 +579,11 @@ class MapDisplay(QtWidgets.QMainWindow):
         return super().eventFilter(source, event)
 
     def dump(self):
-        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Settings', '/tmp/dump.txt', 'Text Files (*.txt);;All Files (*)')
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Settings', '/tmp/dump.txt', 'Text Files (*.txt);;All Files (*)')
 
-        if file_name:
+        if filename:
             try:
-                with open(file_name, 'w', encoding='utf-8') as file:
+                with open(filename, 'w', encoding='utf-8') as file:
                     dump = ''
                     dump += f'Width: {self.row_width_edit.text()}\n'
                     dump += f'Offset: {self.offset_edit.text()}'
@@ -579,6 +637,12 @@ class BinaryLoader():
             return [''.join(palette_data[i:i + 2]) for i in range(0, len(palette_data), 2)]
         return []
 
+    def load_palette(self, palette_file_path):
+        if palette_file_path:
+            palette_data = self.read_file_as_map(palette_file_path, preserve_byte_map=False)
+            return [''.join(palette_data[i:i + 2]) for i in range(0, len(palette_data), 2)]
+        return []
+
     def palette_to_rgb(self, palette):
         rgb_colors = []
 
@@ -597,22 +661,23 @@ class BinaryLoader():
 
 
 class ImageDisplay(QtWidgets.QDialog):
-    def __init__(self, byte_map_buffer, parent=None) -> None:
+    def __init__(self, byte_map_buffer, filename, palette_filenames, parent=None) -> None:
         super().__init__(parent)
 
         self.binary_loader = BinaryLoader(self)
         self.byte_map_buffer = byte_map_buffer
+        self.filename = filename
 
-        layout = QtWidgets.QVBoxLayout()
-        button_layout = QtWidgets.QHBoxLayout()
-
-        self.image_path = ""
+        layout = QtWidgets.QHBoxLayout()  # Use QHBoxLayout for a horizontal layout
+        image_layout = QtWidgets.QVBoxLayout()  # Create layout for the image
+        button_layout = QtWidgets.QVBoxLayout()  # Create layout for buttons
+        list_layout = QtWidgets.QVBoxLayout()  # Create layout for buttons
 
         self.pixmap = QtGui.QPixmap(320, 200)
         self.pixmap.fill(QtGui.QColor(0, 0, 0))
         self.label = QtWidgets.QLabel(self)
         self.label.setPixmap(self.pixmap)
-        layout.addWidget(self.label)
+        image_layout.addWidget(self.label)
 
         save_button = QtWidgets.QPushButton('Save', self)
         save_button.clicked.connect(self.save_merged_image)
@@ -622,16 +687,41 @@ class ImageDisplay(QtWidgets.QDialog):
         palette_button.clicked.connect(self.load_palette)
         button_layout.addWidget(palette_button)
 
-        layout.addLayout(button_layout)
+        image_layout.addLayout(button_layout)
+        layout.addLayout(image_layout)
+
+        # Create a label for the "Palettes" title
+        palettes_label = QtWidgets.QLabel('Palettes', self)
+        palettes_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
+
+        # Create and add the QListWidget to the right side
+        self.list_widget = QtWidgets.QListWidget(self)
+        self.list_widget.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)  # Set selection mode
+        self.list_widget.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
+        self.list_widget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)  # Connect signal
+
+        self.list_widget.addItems(palette_filenames)
+
+        list_layout.addWidget(palettes_label)
+        list_layout.addWidget(self.list_widget)
+        layout.addLayout(list_layout)
+
         self.setLayout(layout)
 
         self.tmp_image = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-        self.load_palette()
 
-    def load_palette(self):
+        if self.list_widget.count() > 0:
+            self.load_palette(self.list_widget.item(0).text())
+
+    def on_selection_changed(self):
+        selected_items = self.list_widget.selectedItems()
+        self.load_palette(selected_items[0].text())
+
+    def load_palette(self, palette_filename):
         from bitplanelib import bitplanes_raw2image
 
-        palette = self.binary_loader.open_palette()
+        palette = self.binary_loader.load_palette(palette_filename)
         rgb_colors = self.binary_loader.palette_to_rgb(palette)
 
         bitplanes_raw2image(self.byte_map_buffer, 5, 320, 200, self.tmp_image.name, rgb_colors)
@@ -641,16 +731,15 @@ class ImageDisplay(QtWidgets.QDialog):
     def save_merged_image(self):
         global file_path
         initial_dir = os.path.dirname(file_path) if file_path else None
-        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Merged Data as PNG', dir=initial_dir, filter='PNG Files (*.png)')
+        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Merged Data as PNG', dir=f"{initial_dir}/{self.filename}.png", filter='PNG Files (*.png)')
 
         if save_path:
             if not save_path.lower().endswith('.png'):
                 save_path += '.png'
 
-                shutil.move(self.image_path, save_path)
-
-                self.tmp_image.close()
-                self.close()
+            shutil.move(self.tmp_image.name, save_path)
+            self.tmp_image.close()
+            self.close()
 
 
 class ClickableRectItem(QtWidgets.QGraphicsRectItem):
