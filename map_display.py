@@ -86,13 +86,6 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.filename = ''
 
         self.current_width = 0
-        self.row_width_edit: QtWidgets.QLineEdit | None = None
-        self.cell_size_edit: QtWidgets.QLineEdit | None = None
-        self.offset_edit: QtWidgets.QLineEdit | None = None
-        self.limit_edit: QtWidgets.QLineEdit | None = None
-        self.view: QtWidgets.QGraphicsView | None = None
-        self.filter_leading_byte_pair_cb: QtWidgets.QCheckBox | None = None
-        self.palette_rows_combo: QtWidgets.QComboBox | None = None
 
         self.display_mode = DisplayMode.HEX
 
@@ -179,35 +172,32 @@ class MapDisplay(QtWidgets.QMainWindow):
                 value_to_color[value] = self.generate_random_color()
 
     def redraw_map(self):
-        if self.row_width_edit and self.cell_size_edit and self.offset_edit and self.view:
-            try:
-                row_width = int(self.row_width_edit.text())
-                cell_size = int(self.cell_size_edit.text())
-                if row_width > 0 and cell_size > 0:
-                    offset = int(self.offset_edit.text())
-                    self.view.scene().clear()  # Clear the self.canvas
-                    self.draw_map(row_width, cell_size, offset)
-            except ValueError as e:
-                print(e)
+        try:
+            row_width = int(self.row_width_edit.text())
+            cell_size = int(self.cell_size_edit.text())
+            if row_width > 0 and cell_size > 0:
+                offset = int(self.offset_edit.text())
+                self.view.scene().clear()  # Clear the self.canvas
+                self.draw_map(row_width, cell_size, offset)
+        except ValueError as e:
+            print(e)
 
     def increase_row_width(self):
-        if self.row_width_edit:
-            try:
-                self.current_width = int(self.row_width_edit.text())
-                self.row_width_edit.setText(str(self.current_width + 1))
-                self.redraw_map()
-            except ValueError:
-                pass
+        try:
+            self.current_width = int(self.row_width_edit.text())
+            self.row_width_edit.setText(str(self.current_width + 1))
+            self.redraw_map()
+        except ValueError:
+            pass
 
     def decrease_row_width(self):
-        if self.row_width_edit:
-            try:
-                self.current_width = int(self.row_width_edit.text())
-                if self.current_width > 1:
-                    self.row_width_edit.setText(str(self.current_width - 1))
-                self.redraw_map()
-            except ValueError:
-                pass
+        try:
+            self.current_width = int(self.row_width_edit.text())
+            if self.current_width > 1:
+                self.row_width_edit.setText(str(self.current_width - 1))
+            self.redraw_map()
+        except ValueError:
+            pass
 
     def open_file_and_read(self):
         global file_path
@@ -263,117 +253,115 @@ class MapDisplay(QtWidgets.QMainWindow):
         return result
 
     def select_area(self, start, stop):
-        if self.view:
-            self.view.scene().clearSelection()
-            for item in self.view.scene().items():
-                if isinstance(item, ClickableRectItem):
-                    if item.file_pos >= start and item.file_pos <= stop:
-                        item.setSelected(True)
+        self.view.scene().clearSelection()
+        for item in self.view.scene().items():
+            if isinstance(item, ClickableRectItem):
+                if item.file_pos >= start and item.file_pos <= stop:
+                    item.setSelected(True)
 
     def draw_map(self, row_width, cell_size, offset):
-        if self.view:
-            limit_diff = 0
-            limit = len(self.str_map_array)
+        limit_diff = 0
+        limit = len(self.str_map_array)
 
-            if self.limit_edit:
-                limit = int(self.limit_edit.text())
+        if self.limit_edit:
+            limit = int(self.limit_edit.text())
 
-                if limit != 0:
-                    limit_diff = len(self.str_map_array) - limit
+            if limit != 0:
+                limit_diff = len(self.str_map_array) - limit
 
-            filtered_map = self.str_map_array
+        filtered_map = self.str_map_array
 
-            if self.filter_leading_byte_pair_cb.isChecked():
-                filtered_map = self.filter_map()
+        if self.filter_leading_byte_pair_cb.isChecked():
+            filtered_map = self.filter_map()
 
-            cell_size_mult = 1.0
+        cell_size_mult = 1.0
 
-            if self.palette_rows_combo:
+        if self.palette_rows_combo:
+            match self.display_mode:
+                case DisplayMode.HEX:
+                    rows = [filtered_map[i:i + row_width] for i in range(offset, len(filtered_map) - limit_diff, row_width)]
+                case DisplayMode.BIT:
+                    cell_size_mult = 0.2
+                    expanded_bits = [bit for hex_value in filtered_map[:limit] for bit in self.hex_to_binary(hex_value)]
+                    rows = [expanded_bits[i:i + row_width] for i in range(offset, len(expanded_bits), row_width)]
+                case DisplayMode.PALETTE:
+                    # cell_size_mult = 0.5
+                    rows = [''.join(filtered_map[i:i + 2]) for i in range(offset, len(filtered_map) - limit_diff, 2)]
+                    rows = self.erase_noncontinuous_values(rows, int(self.palette_rows_combo.currentText()))
+                    rows = [rows[i:i + row_width] for i in range(0, len(rows), row_width)]
+
+            self.canvas_height = len(rows) * cell_size * cell_size_mult  # Calculate the required self.canvas height
+
+        scene = QtWidgets.QGraphicsScene()
+        self.view.setScene(scene)
+
+        font = QtGui.QFont()
+        font.setFamily('Courier New')
+        font.setPointSize(cell_size // 1.5)
+
+        counter_font = QtGui.QFont()
+        # counter_font.setFamily('Courier New')
+        counter_font.setPointSize(cell_size // 3)
+
+        counter_text_width = 50
+
+        for row_index, row in enumerate(rows):
+            y1 = 0
+
+            for col_index, element in enumerate(row):
+                text = str(element)
+
                 match self.display_mode:
                     case DisplayMode.HEX:
-                        rows = [filtered_map[i:i + row_width] for i in range(offset, len(filtered_map) - limit_diff, row_width)]
+                        bg_color = value_to_color.get(text, QtGui.QColor(0, 0, 0))
                     case DisplayMode.BIT:
-                        cell_size_mult = 0.2
-                        expanded_bits = [bit for hex_value in filtered_map[:limit] for bit in self.hex_to_binary(hex_value)]
-                        rows = [expanded_bits[i:i + row_width] for i in range(offset, len(expanded_bits), row_width)]
+                        if text == '0':
+                            bg_color = QtGui.QColor(0, 0, 0)
+                        else:
+                            bg_color = QtGui.QColor(255, 255, 255)
                     case DisplayMode.PALETTE:
-                        # cell_size_mult = 0.5
-                        rows = [''.join(filtered_map[i:i + 2]) for i in range(offset, len(filtered_map) - limit_diff, 2)]
-                        rows = self.erase_noncontinuous_values(rows, int(self.palette_rows_combo.currentText()))
-                        rows = [rows[i:i + row_width] for i in range(0, len(rows), row_width)]
+                        if text[0] == '0':
+                            bg_color = self.binary_loader.amiga_color_to_rgb(text)
+                        else:
+                            bg_color = QtGui.QColor(0, 0, 0)
 
-                self.canvas_height = len(rows) * cell_size * cell_size_mult  # Calculate the required self.canvas height
+                x1 = col_index * cell_size * cell_size_mult + counter_text_width
+                y1 = row_index * cell_size * cell_size_mult
 
-            scene = QtWidgets.QGraphicsScene()
-            self.view.setScene(scene)
+                rect_item = ClickableRectItem(x1, y1, cell_size * cell_size_mult, cell_size * cell_size_mult, row_index * row_width + col_index, self)
+                rect_item.setBrush(bg_color)
 
-            font = QtGui.QFont()
-            font.setFamily('Courier New')
-            font.setPointSize(cell_size // 1.5)
+                scene.addItem(rect_item)
 
-            counter_font = QtGui.QFont()
-            # counter_font.setFamily('Courier New')
-            counter_font.setPointSize(cell_size // 3)
+                # Text
 
-            counter_text_width = 50
+                match self.display_mode:
+                    case DisplayMode.HEX:
+                        text_item = QtWidgets.QGraphicsSimpleTextItem(text)
 
-            for row_index, row in enumerate(rows):
-                y1 = 0
+                        text_item.setFont(font)
+                        text_item.setPos(x1 + cell_size // 2 - text_item.boundingRect().width() // 2, y1 + cell_size // 2 - text_item.boundingRect().height() // 2)
+                        scene.addItem(text_item)
+                    case DisplayMode.PALETTE:
+                        text_item = QtWidgets.QGraphicsSimpleTextItem(text)
 
-                for col_index, element in enumerate(row):
-                    text = str(element)
+                        font.setPointSize(cell_size // 3)
 
-                    match self.display_mode:
-                        case DisplayMode.HEX:
-                            bg_color = value_to_color.get(text, QtGui.QColor(0, 0, 0))
-                        case DisplayMode.BIT:
-                            if text == '0':
-                                bg_color = QtGui.QColor(0, 0, 0)
-                            else:
-                                bg_color = QtGui.QColor(255, 255, 255)
-                        case DisplayMode.PALETTE:
-                            if text[0] == '0':
-                                bg_color = self.binary_loader.amiga_color_to_rgb(text)
-                            else:
-                                bg_color = QtGui.QColor(0, 0, 0)
+                        text_item.setFont(font)
+                        text_item.setPos(x1 + cell_size // 2 - text_item.boundingRect().width() // 2, y1 + cell_size // 2 - text_item.boundingRect().height() // 2)
+                        text_item.setBrush(QtGui.QColor(255, 255, 255))
+                        scene.addItem(text_item)
 
-                    x1 = col_index * cell_size * cell_size_mult + counter_text_width
-                    y1 = row_index * cell_size * cell_size_mult
+            # Add row counter
+            text_item = QtWidgets.QGraphicsSimpleTextItem(str(row_index * row_width))
+            text_item.setFont(counter_font)
+            text_item.setPos(0, y1 + cell_size // 3 - text_item.boundingRect().height() // 3)
+            text_item.setBrush(QtGui.QColor(255, 255, 255))
 
-                    rect_item = ClickableRectItem(x1, y1, cell_size * cell_size_mult, cell_size * cell_size_mult, row_index * row_width + col_index, self)
-                    rect_item.setBrush(bg_color)
+            scene.addItem(text_item)
 
-                    scene.addItem(rect_item)
-
-                    # Text
-
-                    match self.display_mode:
-                        case DisplayMode.HEX:
-                            text_item = QtWidgets.QGraphicsSimpleTextItem(text)
-
-                            text_item.setFont(font)
-                            text_item.setPos(x1 + cell_size // 2 - text_item.boundingRect().width() // 2, y1 + cell_size // 2 - text_item.boundingRect().height() // 2)
-                            scene.addItem(text_item)
-                        case DisplayMode.PALETTE:
-                            text_item = QtWidgets.QGraphicsSimpleTextItem(text)
-
-                            font.setPointSize(cell_size // 3)
-
-                            text_item.setFont(font)
-                            text_item.setPos(x1 + cell_size // 2 - text_item.boundingRect().width() // 2, y1 + cell_size // 2 - text_item.boundingRect().height() // 2)
-                            text_item.setBrush(QtGui.QColor(255, 255, 255))
-                            scene.addItem(text_item)
-
-                # Add row counter
-                text_item = QtWidgets.QGraphicsSimpleTextItem(str(row_index * row_width))
-                text_item.setFont(counter_font)
-                text_item.setPos(0, y1 + cell_size // 3 - text_item.boundingRect().height() // 3)
-                text_item.setBrush(QtGui.QColor(255, 255, 255))
-
-                scene.addItem(text_item)
-
-            self.view.setSceneRect(0, 0, cell_size * row_width, self.canvas_height)  # Set the scene rectangle
-            self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)  # Show the vertical scrollbar
+        self.view.setSceneRect(0, 0, cell_size * row_width, self.canvas_height)  # Set the scene rectangle
+        self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)  # Show the vertical scrollbar
 
     def create_map_view(self, offset=0, row_width=16, cell_size=20):
         self.setGeometry(100, 100, 800, 600)
@@ -453,12 +441,12 @@ class MapDisplay(QtWidgets.QMainWindow):
         # Display mode
 
         self.display_mode_label = QtWidgets.QLabel('Display Mode:')
-        
+
         self.display_mode_combo = QtWidgets.QComboBox(self)
         self.display_mode_combo.addItem('Bit')
         self.display_mode_combo.addItem('Hex')
         self.display_mode_combo.addItem('Palette')
-        
+
         if self.display_mode == DisplayMode.HEX:
             self.display_mode_combo.setCurrentText('Hex')
         else:
