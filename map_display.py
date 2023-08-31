@@ -1,3 +1,4 @@
+import colorsys
 import copy
 from enum import Enum, auto
 import os
@@ -8,8 +9,6 @@ import tempfile
 from typing import Optional
 from PySide6 import QtWidgets, QtCore, QtGui
 from PIL import Image
-import PySide6.QtCore
-import PySide6.QtWidgets
 import numpy as np
 
 start_offset = 0
@@ -22,9 +21,6 @@ class DisplayMode(Enum):
     HEX = auto()
     BIT = auto()
     PALETTE = auto()
-
-
-value_to_color = {}
 
 
 class PaletteManager(QtWidgets.QDialog):
@@ -90,11 +86,13 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.display_mode = DisplayMode.HEX
 
         self.palette_filenames = []
+        self.value_to_color = {}
 
         # Create a menu bar
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu('File')
         edit_menu = menu_bar.addMenu('Edit')
+        options_menu = menu_bar.addMenu('Options')
 
         open_action = QtGui.QAction('Open', self)
         open_action.setShortcut(QtGui.QKeySequence.StandardKey.Open)
@@ -111,11 +109,32 @@ class MapDisplay(QtWidgets.QMainWindow):
         dump_selection_action.setShortcut(QtGui.QKeySequence.StandardKey.Save)
         dump_selection_action.triggered.connect(self.dump_selection)
 
+        self.filter_leading_byte_pair_toggle_action = QtGui.QAction('Filter leading 00', self)
+        self.filter_leading_byte_pair_toggle_action.setCheckable(True)
+        self.filter_leading_byte_pair_toggle_action.setChecked(False)
+        self.filter_leading_byte_pair_toggle_action.triggered.connect(self.redraw_map)
+
+        self.display_decimal_toggle_action = QtGui.QAction('Display as decimal', self)
+        self.display_decimal_toggle_action.setCheckable(True)
+        self.display_decimal_toggle_action.setChecked(False)
+        self.display_decimal_toggle_action.triggered.connect(self.redraw_map)
+
+        self.linear_colors_toggle_action = QtGui.QAction('Use linear colors', self)
+        self.linear_colors_toggle_action.setCheckable(True)
+        self.linear_colors_toggle_action.setChecked(False)
+        self.linear_colors_toggle_action.triggered.connect(lambda checked: (self.set_colors(), self.redraw_map()))
+
+        options_menu.addAction(self.filter_leading_byte_pair_toggle_action)
+        options_menu.addAction(self.display_decimal_toggle_action)
+        options_menu.addAction(self.linear_colors_toggle_action)
+
         file_menu.addAction(open_action)
         file_menu.addAction(quit_action)
         file_menu.addAction(palettes_action)
 
         edit_menu.addAction(dump_selection_action)
+
+        self.set_colors()
 
         self.read_map(file_path)
         self.create_map_view(start_offset, start_width)
@@ -140,19 +159,23 @@ class MapDisplay(QtWidgets.QMainWindow):
 
     def read_map(self, file_path):
         self.str_map_array = self.read_file_as_map(file_path)
-
-        self.set_colors()
-
         self.filename = os.path.basename(file_path)
         self.setWindowTitle(f'Map Data - {self.filename}')
 
-    def generate_random_color(self):
-        red = random.randint(0, 255)
-        green = random.randint(0, 255)
-        blue = random.randint(0, 255)
+    def get_random_color(self):
+        red = random.randint(0, 254)
+        green = random.randint(0, 254)
+        blue = random.randint(0, 254)
 
         # Create a QColor object with the random RGB values
         color = QtGui.QColor(red, green, blue)
+
+        return color
+
+    def get_linear_color(self, value):
+        hue = value / int(self.color_range_max_edit.text())
+        r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+        color = QtGui.QColor.fromRgbF(r, g, b)
 
         return color
 
@@ -165,11 +188,17 @@ class MapDisplay(QtWidgets.QMainWindow):
         return filtered_array
 
     def set_colors(self):
-        unique_values = list(set(self.str_map_array))
+        # unique_values = list(set(self.str_map_array))
 
-        for value in unique_values:
-            if value not in value_to_color:
-                value_to_color[value] = self.generate_random_color()
+        # for value in unique_values:
+        #     if value not in value_to_color:
+        seed_value = 42
+        random.seed(seed_value)
+        for i in range(255):
+            if self.linear_colors_toggle_action.isChecked():
+                self.value_to_color[i] = self.get_linear_color(i)
+            else:
+                self.value_to_color[i] = self.get_random_color()
 
     def redraw_map(self):
         try:
@@ -214,7 +243,7 @@ class MapDisplay(QtWidgets.QMainWindow):
                         filter = False
                         break
             if filter:
-                self.filter_leading_byte_pair_cb.setChecked(True)
+                self.filter_leading_byte_pair_toggle_action.setChecked(True)
                 print('Filtering out leading zero byte pairs')
                 self.filter_map()
 
@@ -271,7 +300,7 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         filtered_map = self.str_map_array
 
-        if self.filter_leading_byte_pair_cb.isChecked():
+        if self.filter_leading_byte_pair_toggle_action.isChecked():
             filtered_map = self.filter_map()
 
         cell_size_mult = 1.0
@@ -313,7 +342,7 @@ class MapDisplay(QtWidgets.QMainWindow):
 
                 match self.display_mode:
                     case DisplayMode.HEX:
-                        bg_color = value_to_color.get(text, QtGui.QColor(0, 0, 0))
+                        bg_color = self.value_to_color.get(int(text, 16), QtGui.QColor(0, 0, 0))
                     case DisplayMode.BIT:
                         if text == '0':
                             bg_color = QtGui.QColor(0, 0, 0)
@@ -337,6 +366,11 @@ class MapDisplay(QtWidgets.QMainWindow):
 
                 match self.display_mode:
                     case DisplayMode.HEX:
+                        if self.display_decimal_toggle_action.isChecked():
+                            text = str(int(text, 16))
+                            font.setPointSize(cell_size // 3)
+                            # font.setPointSizeF(font.pointSize() / 1.06)
+
                         text_item = QtWidgets.QGraphicsSimpleTextItem(text)
 
                         text_item.setFont(font)
@@ -406,17 +440,19 @@ class MapDisplay(QtWidgets.QMainWindow):
         cell_size_layout.addWidget(cell_size_label)
         cell_size_layout.addWidget(self.cell_size_edit)
 
-        # Filter out leading zero byte pair
-        self.filter_leading_byte_pair_cb = QtWidgets.QCheckBox('Filter leading 00')
-        self.filter_leading_byte_pair_cb.setChecked(False)
-        self.filter_leading_byte_pair_cb.stateChanged.connect(self.on_filter_leading_byte_pair_cb)
+        color_range_max = 254
 
-        filter_leading_byte_pair_layout = QtWidgets.QHBoxLayout()
-        filter_leading_byte_pair_layout.addWidget(self.filter_leading_byte_pair_cb)
+        # Color range
+        color_range_max_layout = QtWidgets.QHBoxLayout()
+        color_range_max_label = QtWidgets.QLabel('Max Color:')
+        self.color_range_max_edit = QtWidgets.QLineEdit(str(color_range_max))  # Set to the maximum color range value (255)
+        self.color_range_max_edit.setValidator(QtGui.QIntValidator(0, color_range_max))  # Only allow integer values from 0 to 255
+        color_range_max_layout.addWidget(color_range_max_label)
+        color_range_max_layout.addWidget(self.color_range_max_edit)
 
         # Redraw button
         redraw_button = QtWidgets.QPushButton('Redraw Map')
-        redraw_button.clicked.connect(lambda: self.redraw_map())
+        redraw_button.clicked.connect(lambda: (self.set_colors(), self.redraw_map()))
 
         # Dump
         dump_button = QtWidgets.QPushButton('Dump')
@@ -426,9 +462,14 @@ class MapDisplay(QtWidgets.QMainWindow):
         merge_button = QtWidgets.QPushButton('Merge')
         merge_button.clicked.connect(lambda: self.merge_bitplanes())
 
-        self.limit_edit.installEventFilter(self)
+        self.row_width_edit.returnPressed.connect(self.redraw_map)
+        self.offset_edit.returnPressed.connect(self.redraw_map)
+        self.limit_edit.returnPressed.connect(self.redraw_map)
+        self.cell_size_edit.returnPressed.connect(self.redraw_map)
+
         self.row_width_edit.installEventFilter(self)
         self.offset_edit.installEventFilter(self)
+        self.limit_edit.installEventFilter(self)
 
         # Add all layouts to the main layout
         row_layout.addLayout(row_width_layout)
@@ -436,7 +477,7 @@ class MapDisplay(QtWidgets.QMainWindow):
         row_layout.addLayout(limit_layout)
         row_layout.addWidget(max_limit_button)
         row_layout.addLayout(cell_size_layout)
-        row_layout.addLayout(filter_leading_byte_pair_layout)
+        row_layout.addLayout(color_range_max_layout)
 
         # Display mode
 
@@ -502,9 +543,6 @@ class MapDisplay(QtWidgets.QMainWindow):
         else:
             self.image_dialog = ImageDisplay(self.byte_map_buffer, self.filename, self.palette_filenames)
             self.image_dialog.exec()
-
-    def on_filter_leading_byte_pair_cb(self, state):
-        self.redraw_map()
 
     def set_max_limit(self):
         self.limit_edit.setText(str(len(self.str_map_array)))
