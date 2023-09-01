@@ -14,7 +14,7 @@ import numpy as np
 start_offset = 0
 start_width = 60
 
-file_path = os.path.dirname(os.path.realpath(__file__)) + "/data/CursedKingdoms/gfx/ALSEND1DATA"  # Replace with the actual file path
+# file_path = os.path.dirname(os.path.realpath(__file__)) + "/data/CursedKingdoms/gfx/ALSEND1DATA"  # Replace with the actual file path
 
 
 class DisplayMode(Enum):
@@ -79,7 +79,7 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         self.str_map_array = [str]
         self.byte_map_buffer = b''
-        self.filename = ''
+        self.file_path = ''
 
         self.current_width = 0
 
@@ -136,8 +136,8 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         self.set_colors()
 
-        self.read_map(file_path)
         self.create_map_view(start_offset, start_width)
+        # self.read_map(file_path)
 
         self.selection = (0, len(self.str_map_array))
 
@@ -147,20 +147,6 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         if result == QtWidgets.QDialog.DialogCode.Accepted:
             self.palette_filenames = [palette_manager.list_widget.item(index).text() for index in range(palette_manager.list_widget.count())]
-
-    def read_file_as_map(self, file_path, preserve_byte_map=True):
-        with open(file_path, 'rb') as file:
-            byte_map_buffer = file.read()
-
-        if preserve_byte_map:
-            self.byte_map_buffer = byte_map_buffer
-
-        return [hex(byte_pair)[2:].upper().zfill(2) for byte_pair in byte_map_buffer]
-
-    def read_map(self, file_path):
-        self.str_map_array = self.read_file_as_map(file_path)
-        self.filename = os.path.basename(file_path)
-        self.setWindowTitle(f'Map Data - {self.filename}')
 
     def get_random_color(self):
         red = random.randint(0, 254)
@@ -188,10 +174,6 @@ class MapDisplay(QtWidgets.QMainWindow):
         return filtered_array
 
     def set_colors(self):
-        # unique_values = list(set(self.str_map_array))
-
-        # for value in unique_values:
-        #     if value not in value_to_color:
         seed_value = 42
         random.seed(seed_value)
         for i in range(255):
@@ -228,26 +210,41 @@ class MapDisplay(QtWidgets.QMainWindow):
         except ValueError:
             pass
 
+    def read_file_as_map(self, file_path, preserve_byte_map=True):
+        with open(file_path, 'rb') as file:
+            byte_map_buffer = file.read()
+
+        if preserve_byte_map:
+            self.byte_map_buffer = byte_map_buffer
+
+        return [hex(byte_pair)[2:].upper().zfill(2) for byte_pair in byte_map_buffer]
+
+    def read_map(self, file_path):
+        self.str_map_array = self.read_file_as_map(file_path)
+        self.file_path = os.path.basename(file_path)
+        self.setWindowTitle(f'Map Data - {self.file_path}')
+
+        self.limit_edit.setText(str(len(self.str_map_array)))
+
+        filter = True
+        for i, value in enumerate(self.str_map_array):
+            if i % 2 == 0:
+                if value != '00':
+                    filter = False
+                    break
+        if filter:
+            self.filter_leading_byte_pair_toggle_action.setChecked(True)
+            print('Filtering out leading zero byte pairs')
+            self.filter_map()
+
+        self.redraw_map()
+
     def open_file_and_read(self):
-        global file_path
+        file_path = self.file_path
         initial_dir = os.path.dirname(file_path) if file_path else None
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open File", dir=initial_dir)
         if file_path:
             self.read_map(file_path)
-            self.limit_edit.setText(str(len(self.str_map_array)))
-
-            filter = True
-            for i, value in enumerate(self.str_map_array):
-                if i % 2 == 0:
-                    if value != '00':
-                        filter = False
-                        break
-            if filter:
-                self.filter_leading_byte_pair_toggle_action.setChecked(True)
-                print('Filtering out leading zero byte pairs')
-                self.filter_map()
-
-            self.redraw_map()
 
     def hex_to_binary(self, hex_string):
         decimal_value = int(hex_string, 16)
@@ -528,7 +525,7 @@ class MapDisplay(QtWidgets.QMainWindow):
         layout.addWidget(self.view)
 
         # Draw map initially
-        self.draw_map(row_width, cell_size, offset)
+        # self.draw_map(row_width, cell_size, offset)
 
         self.show()
 
@@ -541,7 +538,7 @@ class MapDisplay(QtWidgets.QMainWindow):
             error_message = 'The length of the bytearray must be divisible by 5 to split it into 5 equal pieces.'
             QtWidgets.QMessageBox.critical(self, 'Error', error_message)
         else:
-            self.image_dialog = ImageDisplay(self.byte_map_buffer, self.filename, self.palette_filenames)
+            self.image_dialog = ImageDisplay(self.byte_map_buffer, self.file_path, self.palette_filenames)
             self.image_dialog.exec()
 
     def set_max_limit(self):
