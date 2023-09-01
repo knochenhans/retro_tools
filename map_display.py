@@ -21,6 +21,7 @@ class DisplayMode(Enum):
     HEX = auto()
     BIT = auto()
     PALETTE = auto()
+    ASCII = auto()
 
 
 class PaletteManager(QtWidgets.QDialog):
@@ -304,7 +305,7 @@ class MapDisplay(QtWidgets.QMainWindow):
 
         if self.palette_rows_combo:
             match self.display_mode:
-                case DisplayMode.HEX:
+                case DisplayMode.HEX | DisplayMode.ASCII:
                     rows = [filtered_map[i:i + row_width] for i in range(offset, len(filtered_map) - limit_diff, row_width)]
                 case DisplayMode.BIT:
                     cell_size_mult = 0.2
@@ -350,6 +351,8 @@ class MapDisplay(QtWidgets.QMainWindow):
                             bg_color = self.binary_loader.amiga_color_to_rgb(text)
                         else:
                             bg_color = QtGui.QColor(0, 0, 0)
+                    case DisplayMode.ASCII:
+                        bg_color = QtGui.QColor(255, 255, 255)
 
                 x1 = col_index * cell_size * cell_size_mult + counter_text_width
                 y1 = row_index * cell_size * cell_size_mult
@@ -381,6 +384,18 @@ class MapDisplay(QtWidgets.QMainWindow):
                         text_item.setFont(font)
                         text_item.setPos(x1 + cell_size // 2 - text_item.boundingRect().width() // 2, y1 + cell_size // 2 - text_item.boundingRect().height() // 2)
                         text_item.setBrush(QtGui.QColor(255, 255, 255))
+                        scene.addItem(text_item)
+                    case DisplayMode.ASCII:
+                        try:
+                            text = bytes.fromhex(text).decode('ASCII')
+                        except:
+                            text = ''
+                        # font.setPointSize(cell_size // 3)
+
+                        text_item = QtWidgets.QGraphicsSimpleTextItem(text)
+
+                        text_item.setFont(font)
+                        text_item.setPos(x1 + cell_size // 2 - text_item.boundingRect().width() // 2, y1 + cell_size // 2 - text_item.boundingRect().height() // 2)
                         scene.addItem(text_item)
 
             # Add row counter
@@ -484,6 +499,7 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.display_mode_combo.addItem('Bit')
         self.display_mode_combo.addItem('Hex')
         self.display_mode_combo.addItem('Palette')
+        self.display_mode_combo.addItem('ASCII')
 
         if self.display_mode == DisplayMode.HEX:
             self.display_mode_combo.setCurrentText('Hex')
@@ -553,6 +569,8 @@ class MapDisplay(QtWidgets.QMainWindow):
             self.display_mode = DisplayMode.HEX
         elif selected_mode == 'Palette':
             self.display_mode = DisplayMode.PALETTE
+        elif selected_mode == 'ASCII':
+            self.display_mode = DisplayMode.ASCII
         self.redraw_map()
 
     def eventFilter(self, source, event):
