@@ -29,7 +29,7 @@ class PaletteManager(QtWidgets.QDialog):
         super().__init__(parent)
 
         self.binary_loader = BinaryLoader(self)
-        self.setAcceptDrops(True)  # Enable drag and drop
+        self.setAcceptDrops(True)
 
         layout = QtWidgets.QVBoxLayout()  # Use QHBoxLayout for a horizontal layout
         list_layout = QtWidgets.QVBoxLayout()  # Create layout for buttons
@@ -89,6 +89,8 @@ class MapDisplay(QtWidgets.QMainWindow):
         self.palette_filenames = []
         self.value_to_color = {}
 
+        self.setAcceptDrops(True)
+
         # Create a menu bar
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu('File')
@@ -141,6 +143,15 @@ class MapDisplay(QtWidgets.QMainWindow):
         # self.read_map(file_path)
 
         self.selection = (0, len(self.str_map_array))
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            self.read_map(file_path)
 
     def open_palette_manager(self):
         palette_manager = PaletteManager(self.palette_filenames)
